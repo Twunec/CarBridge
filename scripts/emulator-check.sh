@@ -5,6 +5,9 @@
 # Usage: CAR_PACKAGE=<package> scripts/emulator-check.sh <signed base.apk> [split.apk ...]
 # Writes logcat and screenshots to emulator-check/. Exits non-zero if any check fails.
 set -uo pipefail
+set -x
+exec 2>&1
+echo "Running from $(pwd) with: $*"
 
 OUT=emulator-check
 mkdir -p "$OUT"
@@ -38,9 +41,10 @@ echo "Launcher: $COMPONENT"
 # A second display stands in for Android Auto's virtual car display
 adb shell settings put global overlay_display_devices 1280x720/160
 sleep 5
-DISPLAY_ID=$(adb shell dumpsys display | grep -oE 'mDisplayId=[1-9][0-9]*' | head -1 | cut -d= -f2)
+DISPLAY_ID=$(adb shell dumpsys display | grep -oE 'mDisplayId=[1-9][0-9]*' | head -1 | cut -d= -f2 || true)
+DISPLAY_ID=${DISPLAY_ID:-}
 echo "Car stand-in display: ${DISPLAY_ID:-none}"
-[ -n "$DISPLAY_ID" ] && pass "second display created" || fail "no second display"
+if [ -n "$DISPLAY_ID" ]; then pass "second display created"; else fail "no second display"; adb shell dumpsys display | head -60; exit 1; fi
 
 guard_log() { adb logcat -d -s CarBridgeGuard:I | tr -d '\r'; }
 launch() {
