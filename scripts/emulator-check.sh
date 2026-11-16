@@ -5,7 +5,6 @@
 # Usage: CAR_PACKAGE=<package> scripts/emulator-check.sh <signed base.apk> [split.apk ...]
 # Writes logcat and screenshots to emulator-check/. Exits non-zero if any check fails.
 set -uo pipefail
-set -x
 exec 2>&1
 echo "Running from $(pwd) with: $*"
 
@@ -53,8 +52,12 @@ launch() {
   adb shell am start --display "$DISPLAY_ID" -n "$COMPONENT" >/dev/null
   sleep 6
 }
-expect_lock() { # $1 = expected lock state, $2 = description
-  if guard_log | grep -q "Car screen lock: $1"; then pass "$2 ($1)"; else fail "$2: expected $1"; guard_log | tail -5; fi
+expect_lock() { # $1 = expected lock state, $2 = description; a cold first start can take a while
+  for _ in $(seq 1 20); do
+    if guard_log | grep -q "Car screen lock: $1"; then pass "$2 ($1)"; return; fi
+    sleep 1
+  done
+  fail "$2: expected $1"; guard_log | tail -5
 }
 shot() { adb shell screencap -d "$DISPLAY_ID" -p > "$OUT/$1.png" 2>/dev/null || adb exec-out screencap -p > "$OUT/$1.png"; }
 
