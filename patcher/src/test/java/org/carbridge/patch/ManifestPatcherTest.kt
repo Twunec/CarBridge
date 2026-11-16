@@ -43,9 +43,9 @@ class ManifestPatcherTest {
         val minSdk = ApkModule.loadApkFile(base).use { apk ->
             PatchPipeline.stripSignatures(apk)
             // Real PNG layers, so the emulator can draw the installed copy's icon
-            val png = java.io.ByteArrayOutputStream().also {
-                javax.imageio.ImageIO.write(java.awt.image.BufferedImage(432, 432, java.awt.image.BufferedImage.TYPE_INT_ARGB), "png", it)
-            }.toByteArray()
+            val png = java.util.Base64.getDecoder().decode(
+                "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
+            )
             patcher.patch(apk, newPackage, ManifestPatcher.Branding("Fixture (Car)", png, png), CarOptions(fillScreen = true))
             patcher.addParkedGuard(apk, newPackage, guardDex)
             File(outDir, "base.unsigned.apk").also { PatchPipeline.write(apk, it); unsigned += it }
