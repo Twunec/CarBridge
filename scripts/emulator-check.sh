@@ -15,7 +15,7 @@ FAILED=0
 pass() { echo "PASS: $*"; }
 fail() { echo "FAIL: $*"; FAILED=1; }
 
-PKG=${CAR_PACKAGE:?set CAR_PACKAGE to the copy's package name}
+PKG=${CAR_PACKAGE:?set CAR_PACKAGE to the package name of the copy}
 echo "Package: $PKG"
 
 adb wait-for-device
