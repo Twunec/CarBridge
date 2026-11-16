@@ -1,6 +1,5 @@
 package org.carbridge.ui
 
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
@@ -129,7 +128,8 @@ private val CarBridgeType = Typography().run {
 }
 
 @Composable
-fun CarBridgeTheme(dark: Boolean = isSystemInDarkTheme(), content: @Composable () -> Unit) {
+// Always dark: easier on the eyes in a car, and one look to test. The light scheme stays for screenshots.
+fun CarBridgeTheme(dark: Boolean = true, content: @Composable () -> Unit) {
     CompositionLocalProvider(LocalSigns provides if (dark) DarkSigns else LightSigns) {
         MaterialTheme(
             colorScheme = if (dark) DarkScheme else LightScheme,

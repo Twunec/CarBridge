@@ -21,6 +21,9 @@ data class SourceApp(
     val info: ApplicationInfo,
     val icon: ImageBitmap,
     val sizeBytes: Long,
+    /** Split APKs next to the base, e.g. Play's config splits for CPU, screen density and language. */
+    val splitCount: Int,
+    val version: Version?,
     /** The app already ships its own Android Auto experience (media, messaging or templates). */
     val hasAndroidAuto: Boolean,
     val caution: Caution?,
@@ -48,6 +51,8 @@ data class CarCopy(
     /** The original has a media browser service, so the audio-player choice matters. */
     val hasMediaService: Boolean,
     val options: CarOptions,
+    /** The copy was (or will next be) built with the parked-only video lock. */
+    val parkedOnly: Boolean,
 ) {
     /** True when the original app has been updated past the version this copy was made from. */
     val outdated get() = version != null && originalVersion != null && originalVersion.code > version.code
@@ -60,7 +65,7 @@ data class Catalog(val copies: List<CarCopy>, val available: List<SourceApp>)
 object AppCatalog {
     private const val ICON_PX = 144
 
-    fun load(context: Context, options: (String) -> CarOptions): Catalog {
+    fun load(context: Context, options: (String) -> CarOptions, parkedOnly: (String) -> Boolean): Catalog {
         val pm = context.packageManager
         val launcher = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
         val launchable = pm.queryIntentActivities(launcher, 0)
@@ -88,7 +93,7 @@ object AppCatalog {
                 info.packageName in licensed -> Caution.LicenseCheck
                 else -> null
             }
-            info.packageName to info.toSource(pm, info.packageName in autoApps, caution)
+            info.packageName to info.toSource(pm, info.packageName in autoApps, caution, versionOf(pm, info.packageName))
         }
 
         val copies = copyInfos.map { info ->
@@ -105,6 +110,7 @@ object AppCatalog {
                 portraitLocked = original != null && locksPortrait(pm, originalPkg),
                 hasMediaService = original != null && hasMediaService(pm, originalPkg),
                 options = options(originalPkg),
+                parkedOnly = parkedOnly(originalPkg),
             )
         }.sortedWith(compareBy({ !it.outdated }, { it.label.lowercase() }))
 
@@ -113,11 +119,13 @@ object AppCatalog {
         return Catalog(copies, available)
     }
 
-    private fun ApplicationInfo.toSource(pm: PackageManager, hasAndroidAuto: Boolean, caution: Caution?) = SourceApp(
+    private fun ApplicationInfo.toSource(pm: PackageManager, hasAndroidAuto: Boolean, caution: Caution?, version: Version?) = SourceApp(
         label = loadLabel(pm).toString(),
         info = this,
         icon = pm.getApplicationIcon(this).toImageBitmap(),
         sizeBytes = (listOf(sourceDir) + splitSourceDirs.orEmpty()).sumOf { File(it).length() },
+        splitCount = splitSourceDirs?.size ?: 0,
+        version = version,
         hasAndroidAuto = hasAndroidAuto,
         caution = caution,
     )

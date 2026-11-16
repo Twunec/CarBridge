@@ -25,7 +25,10 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // The header is always guide-sign green, so status bar icons stay light in both themes
-        enableEdgeToEdge(statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT))
+        enableEdgeToEdge(
+            statusBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+            navigationBarStyle = SystemBarStyle.dark(Color.TRANSPARENT),
+        )
         super.onCreate(savedInstanceState)
         val actions = HomeActions(
             allowInstalls = {
@@ -40,7 +43,12 @@ class MainActivity : ComponentActivity() {
             openMorphe = { startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(MORPHE_SOURCE))) },
             setFillScreen = model::setFillScreen,
             setKeepMedia = model::setKeepMedia,
+            setParkedOnly = model::setParkedOnly,
             remove = { copy -> startActivity(Intent(Intent.ACTION_DELETE, Uri.parse("package:${copy.packageName}"))) },
+            openChecks = model::openChecks,
+            openAppInfo = { pkg ->
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$pkg")))
+            },
         )
         UpdateCheck.schedule(this)
         if (savedInstanceState == null) handleUpdateIntent(intent)
@@ -82,7 +90,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private companion object {
-        const val ANDROID_AUTO = "com.google.android.projection.gearhead"
+        const val ANDROID_AUTO = CopyChecks.ANDROID_AUTO
         const val MORPHE_SOURCE = "https://morphe.software/add-source?github=jmwerk/carbridge-patches"
     }
 }

@@ -97,26 +97,43 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.material3.Switch
 import androidx.compose.ui.semantics.Role
 import org.carbridge.Caution
+import org.carbridge.CheckItem
+import org.carbridge.CheckState
+import org.carbridge.CopyChecks
 import org.carbridge.HomeModel
 import org.carbridge.Job
-import org.carbridge.JobStep
+import org.carbridge.YOUTUBE
+import org.carbridge.patch.Stage
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material.icons.rounded.CheckCircle
+import androidx.compose.material.icons.rounded.Lock
+import androidx.compose.material.icons.rounded.Warning
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.ui.text.font.FontFamily
 import org.carbridge.Setup
 import org.carbridge.SourceApp
 import org.carbridge.UserMessage
 import org.carbridge.Version
 
 class HomeActions(
-    val allowInstalls: () -> Unit,
-    val openAndroidAuto: () -> Unit,
-    val markDeveloperMode: () -> Unit,
-    val markUnknownSources: () -> Unit,
-    val add: (SourceApp) -> Unit,
-    val update: (CarCopy) -> Unit,
-    val updateAll: (List<CarCopy>) -> Unit,
-    val openMorphe: () -> Unit,
-    val setFillScreen: (CarCopy, Boolean) -> Unit,
-    val setKeepMedia: (CarCopy, Boolean) -> Unit,
-    val remove: (CarCopy) -> Unit,
+    val allowInstalls: () -> Unit = {},
+    val openAndroidAuto: () -> Unit = {},
+    val markDeveloperMode: () -> Unit = {},
+    val markUnknownSources: () -> Unit = {},
+    val add: (SourceApp) -> Unit = {},
+    val update: (CarCopy) -> Unit = {},
+    val updateAll: (List<CarCopy>) -> Unit = {},
+    val openMorphe: () -> Unit = {},
+    val setFillScreen: (CarCopy, Boolean) -> Unit = { _, _ -> },
+    val setKeepMedia: (CarCopy, Boolean) -> Unit = { _, _ -> },
+    val setParkedOnly: (CarCopy, Boolean) -> Unit = { _, _ -> },
+    val remove: (CarCopy) -> Unit = {},
+    /** Opens a car copy's checks, by its package name. */
+    val openChecks: (String) -> Unit = {},
+    /** Opens Android's app info page for a package, e.g. to allow location for a copy. */
+    val openAppInfo: (String) -> Unit = {},
 )
 
 private val SignShape = RoundedCornerShape(20.dp)
@@ -135,13 +152,20 @@ fun HomeScreen(model: HomeModel, actions: HomeActions) {
 
     LaunchedEffect(model) {
         model.messages.collect { message ->
+            val action = when {
+                message.checksFor != null -> "Checks"
+                message.details != null -> "Details"
+                else -> null
+            }
             val result = snackbar.showSnackbar(
                 message.text,
-                actionLabel = if (message.details != null) "Details" else null,
-                withDismissAction = message.details == null,
+                actionLabel = action,
+                withDismissAction = action == null,
                 duration = SnackbarDuration.Long,
             )
-            if (result == SnackbarResult.ActionPerformed) details = message
+            if (result == SnackbarResult.ActionPerformed) {
+                message.checksFor?.let(actions.openChecks) ?: run { details = message }
+            }
         }
     }
 
@@ -176,6 +200,22 @@ fun HomeScreen(model: HomeModel, actions: HomeActions) {
                     }
                 }
 
+                if (catalog != null) {
+                    val youtube = catalog.available.firstOrNull { it.info.packageName == YOUTUBE }
+                    val youtubeCopy = catalog.copies.firstOrNull { it.original?.info?.packageName == YOUTUBE }
+                    item("youtube") {
+                        YouTubeCard(
+                            source = youtube ?: youtubeCopy?.original,
+                            copy = youtubeCopy,
+                            busy = busy,
+                            onCreate = { app -> actions.add(app) },
+                            onUpdate = { copy -> actions.update(copy) },
+                            onChecks = { copy -> actions.openChecks(copy.packageName) },
+                            onRemove = { copy -> actions.remove(copy) },
+                        )
+                    }
+                }
+
                 item("car-title") { SectionTitle("On your car") }
                 when {
                     catalog == null -> item("loading") { Loading() }
@@ -195,6 +235,8 @@ fun HomeScreen(model: HomeModel, actions: HomeActions) {
                             onRemove = { actions.remove(copy) },
                             onFillScreen = { fill -> actions.setFillScreen(copy, fill) },
                             onKeepMedia = { keep -> actions.setKeepMedia(copy, keep) },
+                            onParkedOnly = { on -> actions.setParkedOnly(copy, on) },
+                            onChecks = { actions.openChecks(copy.packageName) },
                         )
                     }
                     }
@@ -208,7 +250,9 @@ fun HomeScreen(model: HomeModel, actions: HomeActions) {
                     val search = query.trim()
                     // A search is explicit, so it also finds apps that already have Android Auto
                     val shown = catalog.available.filter {
-                        if (search.isNotEmpty()) it.label.contains(search, ignoreCase = true)
+                        if (search.isNotEmpty()) {
+                            it.label.contains(search, ignoreCase = true) || it.info.packageName.contains(search, ignoreCase = true)
+                        }
                         else model.showAutoApps || !it.hasAndroidAuto
                     }
                     val autoCount = catalog.available.count { it.hasAndroidAuto }
@@ -241,7 +285,11 @@ fun HomeScreen(model: HomeModel, actions: HomeActions) {
     }
 
     model.pendingAdd?.let { choice ->
-        AddChoiceDialog(choice, onConfirm = { model.confirmAdd(choice, it) }, onDismiss = model::cancelAdd)
+        AddChoiceDialog(
+            choice,
+            onConfirm = { options, parkedOnly -> model.confirmAdd(choice, options, parkedOnly) },
+            onDismiss = model::cancelAdd,
+        )
     }
     cautionFor?.let { app ->
         CautionDialog(
@@ -250,6 +298,17 @@ fun HomeScreen(model: HomeModel, actions: HomeActions) {
             onAddAnyway = { cautionFor = null; actions.add(app) },
             onOpenMorphe = { cautionFor = null; actions.openMorphe() },
         )
+    }
+    model.checks?.let { checks ->
+        ModalBottomSheet(onDismissRequest = model::closeChecks) {
+            ChecksSheet(
+                checks,
+                onManual = model::setManualCheck,
+                onAllowLocation = { actions.openAppInfo(checks.packageName) },
+                onOpenAndroidAuto = actions.openAndroidAuto,
+                onRerun = { model.openChecks(checks.packageName) },
+            )
+        }
     }
     if (showAbout) {
         ModalBottomSheet(onDismissRequest = { showAbout = false }) { About() }
@@ -261,12 +320,22 @@ fun HomeScreen(model: HomeModel, actions: HomeActions) {
             title = { Text(message.text) },
             text = {
                 Column(Modifier.verticalScroll(rememberScrollState())) {
-                    Text(
-                        "This app may not support being copied. These details help when reporting a problem:",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                    Spacer(Modifier.height(12.dp))
-                    Text(message.details.orEmpty(), style = MaterialTheme.typography.bodySmall)
+                    message.stage?.let { stage ->
+                        Text(
+                            "Failed at step ${stage.ordinal + 1} of ${Stage.entries.size}: ${stage.title}",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.error,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(stageHelp(stage), style = MaterialTheme.typography.bodyMedium)
+                        Spacer(Modifier.height(12.dp))
+                    }
+                    SelectionContainer {
+                        Text(
+                            message.details.orEmpty(),
+                            style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+                        )
+                    }
                 }
             },
         )
@@ -468,12 +537,14 @@ private fun CarSign(
     onRemove: () -> Unit,
     onFillScreen: (Boolean) -> Unit,
     onKeepMedia: (Boolean) -> Unit,
+    onParkedOnly: (Boolean) -> Unit,
+    onChecks: () -> Unit,
 ) {
     val signs = LocalSigns.current
     var menu by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth().padding(horizontal = Gutter, vertical = 4.dp)) {
         if (copy.outdated) UpdateTab()
-        GuidePanel(Modifier.fillMaxWidth()) {
+        GuidePanel(Modifier.fillMaxWidth().clip(SignShape).clickable(onClick = onChecks)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 AppIcon(copy.icon, 40)
                 Spacer(Modifier.width(12.dp))
@@ -491,6 +562,15 @@ private fun CarSign(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    PackageName(copy.packageName, signs.onGuideMuted)
+                }
+                if (copy.parkedOnly) {
+                    Icon(
+                        Icons.Rounded.Lock,
+                        contentDescription = "Video only while parked",
+                        tint = signs.onGuideMuted,
+                        modifier = Modifier.size(18.dp),
+                    )
                 }
                 if (copy.outdated) {
                     Button(
@@ -505,6 +585,11 @@ private fun CarSign(
                         Icon(Icons.Rounded.MoreVert, contentDescription = "More for ${copy.label}", tint = signs.onGuide)
                     }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
+                        DropdownMenuItem(
+                            text = { Text("Checks") },
+                            leadingIcon = { Icon(Icons.Rounded.CheckCircle, contentDescription = null) },
+                            onClick = { menu = false; onChecks() },
+                        )
                         if (copy.original != null) {
                             DropdownMenuItem(
                                 text = { Text("Update copy") },
@@ -528,8 +613,15 @@ private fun CarSign(
                                 onClick = { menu = false; onKeepMedia(!keep) },
                             )
                         }
+                        if (copy.original != null && copy.original.info.packageName != YOUTUBE) {
+                            DropdownMenuItem(
+                                text = { Text(if (copy.parkedOnly) "Allow while driving" else "Only while parked") },
+                                leadingIcon = { Icon(Icons.Rounded.Lock, contentDescription = null) },
+                                onClick = { menu = false; onParkedOnly(!copy.parkedOnly) },
+                            )
+                        }
                         DropdownMenuItem(
-                            text = { Text("Remove from car") },
+                            text = { Text("Uninstall copy") },
                             leadingIcon = { Icon(Icons.Rounded.Delete, contentDescription = null) },
                             onClick = { menu = false; onRemove() },
                         )
@@ -618,6 +710,7 @@ private fun SourceRow(app: SourceApp, enabled: Boolean, onAdd: () -> Unit) {
         Spacer(Modifier.width(14.dp))
         Column(Modifier.weight(1f)) {
             Text(app.label, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            PackageName(app.info.packageName, MaterialTheme.colorScheme.onSurfaceVariant)
             Text(
                 listOfNotNull(
                     when (app.caution) {
@@ -626,7 +719,9 @@ private fun SourceRow(app: SourceApp, enabled: Boolean, onAdd: () -> Unit) {
                         null -> null
                     },
                     "Has Android Auto".takeIf { app.hasAndroidAuto },
+                    app.version?.name,
                     Formatter.formatShortFileSize(context, app.sizeBytes),
+                    splitText(app.splitCount),
                 ).joinToString(" · "),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -658,19 +753,29 @@ private fun UpdateAllRow(count: Int, enabled: Boolean, onClick: () -> Unit) {
 }
 
 @Composable
-private fun AddChoiceDialog(choice: AddChoice, onConfirm: (CarOptions) -> Unit, onDismiss: () -> Unit) {
+private fun AddChoiceDialog(choice: AddChoice, onConfirm: (CarOptions, Boolean) -> Unit, onDismiss: () -> Unit) {
     var fill by rememberSaveable { mutableStateOf(true) }
     var player by rememberSaveable { mutableStateOf(false) }
+    var parkedOnly by rememberSaveable { mutableStateOf(true) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Add ${choice.app.label}") },
+        title = { Text(if (choice.isYouTube) "Create YouTube (Car)" else "Add ${choice.app.label}") },
         text = {
-            Column {
-                Text(
-                    "You can change these later from the copy's ⋮ menu.",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                if (choice.isYouTube) {
+                    YouTubeExpectations(choice.app)
+                } else {
+                    Text(
+                        "You can change these later from the copy's ⋮ menu.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    ChoiceRow(
+                        "Only while parked",
+                        "Covers the app on the car screen and pauses playback unless GPS shows the car is still. Needs location for the copy.",
+                        parkedOnly,
+                    ) { parkedOnly = it }
+                }
                 if (choice.portraitLocked) {
                     ChoiceRow(
                         "Fill the car screen",
@@ -688,8 +793,8 @@ private fun AddChoiceDialog(choice: AddChoice, onConfirm: (CarOptions) -> Unit, 
             }
         },
         confirmButton = {
-            TextButton(onClick = { onConfirm(CarOptions(keepMediaServices = player, fillScreen = fill)) }) {
-                Text("Add to car")
+            TextButton(onClick = { onConfirm(CarOptions(keepMediaServices = player, fillScreen = fill), parkedOnly) }) {
+                Text(if (choice.isYouTube) "Create car version" else "Add to car")
             }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
@@ -746,7 +851,7 @@ private fun CautionDialog(app: SourceApp, onDismiss: () -> Unit, onAddAnyway: ()
 private fun Footer(onAbout: () -> Unit) {
     Column(Modifier.fillMaxWidth().padding(start = Gutter, end = Gutter, top = 32.dp)) {
         Text(
-            "Car copies are for passengers, or for when you're parked.",
+            "Car copies lock video on the car screen unless the car is parked. Never watch while driving.",
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -777,13 +882,14 @@ private fun JobBar(job: Job, waiting: Int) {
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        JobStep.entries[job.step].text,
+                        "Step ${job.stage.ordinal + 1} of ${Stage.entries.size} · ${job.stage.title}" +
+                            (job.detail?.let { " ($it)" } ?: ""),
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
             }
-            LaneProgress(job.step, JobStep.entries.size, Modifier.padding(top = 14.dp))
+            LaneProgress(job.stage.ordinal, Stage.entries.size, Modifier.padding(top = 14.dp))
         }
     }
 }
@@ -799,7 +905,7 @@ private fun LaneProgress(current: Int, total: Int, modifier: Modifier = Modifier
     )
     val on = MaterialTheme.colorScheme.primary
     val off = MaterialTheme.colorScheme.outlineVariant
-    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         repeat(total) { i ->
             Box(
                 Modifier.weight(1f).height(6.dp).clip(CircleShape).background(
@@ -842,8 +948,26 @@ private fun About() {
                 "and don't share the copies.",
         )
         AboutItem(
+            "Parked-only video",
+            "Each copy carries a small lock from CarBridge. On the car screen it covers the app and pauses playback " +
+                "unless the phone's GPS shows the car has been still for a few seconds. Without location permission " +
+                "or a GPS fix it stays locked. It doesn't affect the copy on the phone's own screen.",
+        )
+        AboutItem(
             "Free software",
-            "GPL-3.0. No accounts, ads or tracking. Everything happens on this phone.",
+            "GPL-3.0. No accounts, ads or tracking, and no internet permission. Everything happens on this phone.",
+        )
+        AboutItem(
+            "Licence and credits",
+            "This is a modified version of CarBridge by jmwerk (github.com/jmwerk/CarBridge), changed in November 2026 " +
+                "to add the YouTube workflow, the parked-only lock, step-by-step progress and copy checks. It is " +
+                "distributed under the GNU General Public License v3.0, without warranty; the full licence is in the " +
+                "LICENSE file of the source. Car-visibility entries come from AABrowser (GPL-3.0). Uses ARSCLib " +
+                "(Apache-2.0) and apksig (Apache-2.0, Android Open Source Project), and Jetpack Compose (Apache-2.0).",
+        )
+        AboutItem(
+            "Other apps' licences",
+            "YouTube and other apps you copy keep their own terms. Copies are for your own use: don't share them.",
         )
     }
 }
@@ -858,5 +982,203 @@ private fun AboutItem(title: String, body: String) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 4.dp),
         )
+    }
+}
+
+@Composable
+private fun PackageName(packageName: String, color: androidx.compose.ui.graphics.Color) {
+    Text(
+        packageName,
+        style = MaterialTheme.typography.bodySmall.copy(fontFamily = FontFamily.Monospace),
+        color = color,
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
+}
+
+/** Play installs most apps as an App Bundle: a base APK plus config splits. */
+private fun splitText(splits: Int) = when (splits) {
+    0 -> "single APK"
+    1 -> "base + 1 split"
+    else -> "base + $splits splits"
+}
+
+/** What a failure at each stage usually means, and what to try. */
+private fun stageHelp(stage: Stage) = when (stage) {
+    Stage.Check -> "CarBridge couldn't start: usually free space, or Android not letting it read the app."
+    Stage.Read -> "The app's APK files couldn't be read. Very large apps can run out of memory here."
+    Stage.Patch -> "The app's manifest couldn't be changed for Android Auto. This app may not support being copied."
+    Stage.Lock -> "The parked-only lock couldn't be added to the copy."
+    Stage.Write -> "Writing the copy's APK files failed, often for lack of space."
+    Stage.Sign -> "Signing with this phone's key failed. Restarting the phone sometimes helps the Keystore."
+    Stage.Verify -> "The signed copy didn't pass the same signature checks Android's installer runs, so it wasn't installed."
+    Stage.Install, Stage.Confirm -> "Android's installer refused the copy. Its own message is below."
+    Stage.Inspect -> "The copy installed, but checking it failed."
+}
+
+/** The main job: making and managing YouTube's car version. */
+@Composable
+private fun YouTubeCard(
+    source: SourceApp?,
+    copy: CarCopy?,
+    busy: Boolean,
+    onCreate: (SourceApp) -> Unit,
+    onUpdate: (CarCopy) -> Unit,
+    onChecks: (CarCopy) -> Unit,
+    onRemove: (CarCopy) -> Unit,
+) {
+    val context = LocalContext.current
+    Surface(
+        Modifier.fillMaxWidth().padding(start = Gutter, end = Gutter, top = 20.dp),
+        shape = SignShape,
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        Column(Modifier.padding(20.dp)) {
+            Text("YouTube for the car", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
+            if (source == null) {
+                Text(
+                    "YouTube isn't installed on this phone. Install it from the Play Store, then come back.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 6.dp),
+                )
+                return@Column
+            }
+            Row(Modifier.padding(top = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                AppIcon(copy?.icon ?: source.icon, 48)
+                Spacer(Modifier.width(14.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(if (copy != null) "YouTube (Car)" else source.label, style = MaterialTheme.typography.titleMedium)
+                    PackageName(copy?.packageName ?: source.info.packageName, MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        listOfNotNull(
+                            (copy?.version ?: source.version)?.name,
+                            splitText(source.splitCount),
+                            Formatter.formatShortFileSize(context, source.sizeBytes),
+                        ).joinToString(" · "),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            Text(
+                if (copy == null) {
+                    "Creates a separate app, YouTube (Car), that Android Auto can show. Your YouTube app stays as it is. " +
+                        "Video on the car screen only plays while parked."
+                } else if (copy.outdated) {
+                    "YouTube was updated. Update the car version to match."
+                } else {
+                    "Installed next to YouTube. Run the checks after each update and in the car."
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 12.dp),
+            )
+            FlowRow(
+                Modifier.padding(top = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (copy == null) {
+                    Button(onClick = { onCreate(source) }, enabled = !busy) { Text("Create YouTube (Car)") }
+                } else {
+                    Button(onClick = { onChecks(copy) }) { Text("Checks") }
+                    FilledTonalButton(onClick = { onUpdate(copy) }, enabled = !busy) {
+                        Text(if (copy.outdated) "Update" else "Rebuild")
+                    }
+                    OutlinedButton(onClick = { onRemove(copy) }, enabled = !busy) { Text("Uninstall") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun YouTubeExpectations(app: SourceApp) {
+    val points = listOf(
+        "Your YouTube app, its data and its Play Store updates are untouched. The car version is a separate app with its own data.",
+        "The ${splitText(app.splitCount)} from the Play Store are copied, renamed and signed with a key that stays on this phone.",
+        "Google sign-in will probably not work in a re-signed copy. Expect to use it signed out.",
+        "YouTube may refuse to run, or misbehave, as a copy. Patching succeeding doesn't prove it works: use Checks and test in the car.",
+        "On the car screen, video is covered and paused unless GPS shows the car is parked. Allow location for the copy afterwards.",
+    )
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        points.forEach { point ->
+            Row {
+                Text("•  ", style = MaterialTheme.typography.bodyMedium)
+                Text(point, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChecksSheet(
+    checks: CopyChecks,
+    onManual: (String, Boolean) -> Unit,
+    onAllowLocation: () -> Unit,
+    onOpenAndroidAuto: () -> Unit,
+    onRerun: () -> Unit,
+) {
+    Column(
+        Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+            .padding(start = 24.dp, end = 24.dp, bottom = 32.dp),
+    ) {
+        Text("Checks: ${checks.label}", style = MaterialTheme.typography.headlineSmall)
+        PackageName(checks.packageName, MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(
+            checks.summary,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(top = 4.dp),
+        )
+        FlowRow(
+            Modifier.padding(top = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            if (checks.needsLocation) Button(onClick = onAllowLocation) { Text("Allow location") }
+            FilledTonalButton(onClick = onRerun) { Text("Check again") }
+            OutlinedButton(onClick = onOpenAndroidAuto) { Text("Android Auto settings") }
+        }
+        checks.sections.forEach { section ->
+            Text(
+                section.title,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = 20.dp, bottom = 4.dp).semantics { heading() },
+            )
+            HorizontalDivider()
+            section.items.forEach { item -> CheckRow(item, onManual) }
+        }
+    }
+}
+
+@Composable
+private fun CheckRow(item: CheckItem, onManual: (String, Boolean) -> Unit) {
+    val signs = LocalSigns.current
+    val manual = item.manualKey
+    Row(
+        Modifier.fillMaxWidth()
+            .then(
+                if (manual != null) {
+                    Modifier.toggleable(value = item.done, role = Role.Checkbox) { onManual(manual, it) }
+                } else Modifier,
+            )
+            .padding(vertical = 10.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Box(Modifier.size(28.dp), contentAlignment = Alignment.Center) {
+            when (item.state) {
+                CheckState.Pass -> Icon(Icons.Rounded.CheckCircle, "Passed", tint = MaterialTheme.colorScheme.primary)
+                CheckState.Warn -> Icon(Icons.Rounded.Warning, "Warning", tint = signs.caution)
+                CheckState.Fail -> Icon(Icons.Rounded.Close, "Failed", tint = MaterialTheme.colorScheme.error)
+                CheckState.Manual -> Checkbox(checked = item.done, onCheckedChange = null)
+            }
+        }
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(item.title, style = MaterialTheme.typography.titleSmall)
+            Text(item.detail, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }

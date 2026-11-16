@@ -1,4 +1,5 @@
-# Builds the app and runs the tests, including the shared Android Auto rules in core/.
+# Builds the app and runs the tests, then checks a real patched copy separately for signing,
+# installation, the Android Auto launcher entry and the parked-only lock on an emulator.
 name: CI
 
 on:
@@ -22,12 +23,37 @@ jobs:
       - name: Test and build
         run: ./gradlew --no-daemon :core:test :patcher:testDebugUnitTest :patcher:assembleDebug
 
+      # CarBridge's own debug APK is a real app with providers and resources to patch
+      - name: Patch, lock, sign and verify a real APK
+        run: >
+          ./gradlew --no-daemon :patcher:testDebugUnitTest --tests '*patchesLocksSignsAndVerifiesFixture*'
+          -PpatchFixture=patcher/build/outputs/apk/debug/patcher-debug.apk -PpatchHeap=512m
+
+      - name: Check the copy with the SDK's own tools
+        run: |
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          OUT=patcher/build/patch-test/out.apk
+          test -f "$OUT"
+          "$BT/apksigner" verify --verbose --print-certs "$OUT"
+          "$BT/aapt2" dump badging "$OUT" | head -5
+          "$BT/aapt2" dump xmltree --file AndroidManifest.xml "$OUT" > manifest.txt
+          for want in 'org.carbridge.debug.car' 'org.carbridge.guard.ParkedGuardProvider' \
+                      'android.intent.category.CAR_LAUNCHER' 'com.google.android.gms.car.application' \
+                      'android.permission.ACCESS_FINE_LOCATION'; do
+            grep -q "$want" manifest.txt && echo "PASS: $want" || { echo "FAIL: $want"; exit 1; }
+          done
+
       - name: Upload debug APK
-        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: carbridge-debug-apk
           path: patcher/build/outputs/apk/debug/*.apk
+
+      - name: Upload patched test copy
+        uses: actions/upload-artifact@v4
+        with:
+          name: patched-test-copy
+          path: patcher/build/patch-test/out.apk
 
       - name: Upload test reports
         if: always()
@@ -37,3 +63,39 @@ jobs:
           path: |
             core/build/reports/tests/
             patcher/build/reports/tests/
+
+  emulator:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: patched-test-copy
+          path: copy
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Install the copy and check the lock on an emulator
+        uses: reactivecircus/android-emulator-runner@v2
+        env:
+          CAR_PACKAGE: org.carbridge.debug.car
+        with:
+          api-level: 35
+          arch: x86_64
+          target: google_apis
+          disable-animations: true
+          script: ./scripts/emulator-check.sh copy/out.apk
+
+      - name: Upload emulator results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: emulator-check
+          path: emulator-check/

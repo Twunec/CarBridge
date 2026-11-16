@@ -40,6 +40,25 @@ object Installer {
         }
     }
 
+    /** Turns a PackageInstaller failure into what happened and what to do about it. */
+    fun explain(status: Int, systemMessage: String?): String {
+        val reason = when (status) {
+            PackageInstaller.STATUS_FAILURE_CONFLICT ->
+                "A car copy signed with a different key is already installed (for example one made before " +
+                    "CarBridge was reinstalled). Uninstall the car copy, then add it again."
+            PackageInstaller.STATUS_FAILURE_STORAGE -> "Not enough storage to install the car copy."
+            PackageInstaller.STATUS_FAILURE_INCOMPATIBLE ->
+                "Android says the copy isn't compatible with this phone (e.g. a missing split or wrong CPU type)."
+            PackageInstaller.STATUS_FAILURE_INVALID -> "Android rejected the APK as invalid."
+            PackageInstaller.STATUS_FAILURE_BLOCKED ->
+                "The install was blocked, e.g. by a device policy or because CarBridge isn't allowed to install apps."
+            PackageInstaller.STATUS_FAILURE_ABORTED -> "The install was cancelled."
+            PackageInstaller.STATUS_FAILURE_TIMEOUT -> "The install timed out."
+            else -> "The install failed."
+        }
+        return "$reason\nAndroid's message (status $status): ${systemMessage ?: "none"}"
+    }
+
     internal fun report(result: Result) {
         _events.tryEmit(result)
     }
@@ -59,7 +78,7 @@ class InstallStatusReceiver : BroadcastReceiver() {
             else -> {
                 val msg = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE)
                 val cancelled = status == PackageInstaller.STATUS_FAILURE_ABORTED
-                Installer.report(Installer.Result(pkg, false, cancelled, "Install failed ($status): $msg"))
+                Installer.report(Installer.Result(pkg, false, cancelled, Installer.explain(status, msg)))
             }
         }
     }

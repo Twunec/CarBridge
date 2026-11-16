@@ -34,6 +34,43 @@ class ManifestPatcher(private val log: (String) -> Unit) {
         apk.refreshTable()
     }
 
+    /**
+     * Adds the parked-only lock to a renamed base APK: its dex, the provider that starts it when
+     * the app's process starts, and the location permissions it reads speed with. Call after
+     * [patch], so the provider's authority already uses [newPackage].
+     */
+    fun addParkedGuard(apk: ApkModule, newPackage: String, guardDex: ByteArray) {
+        val manifest = apk.androidManifest ?: error("APK has no AndroidManifest.xml")
+        val app = manifest.applicationElement ?: error("manifest has no <application>")
+        val hasCode = app.searchAttributeByResourceId(ID_HAS_CODE)
+        if (hasCode != null && hasCode.valueType == ValueType.BOOLEAN && !hasCode.valueAsBoolean) {
+            hasCode.setValueAsBoolean(true)
+        }
+
+        val dexName = nextDexName(apk)
+        apk.add(ByteInputSource(guardDex, dexName))
+
+        if (app.listElements("provider").none { nameOf(it) == GUARD_PROVIDER }) {
+            val provider = app.newElement("provider")
+            provider.getOrCreateAndroidAttribute("name", ID_NAME).setValueAsString(GUARD_PROVIDER)
+            provider.getOrCreateAndroidAttribute("authorities", ID_AUTHORITIES).setValueAsString("$newPackage$GUARD_AUTHORITY_SUFFIX")
+            provider.getOrCreateAndroidAttribute("exported", ID_EXPORTED).setValueAsBoolean(false)
+        }
+        for (perm in GUARD_PERMISSIONS) {
+            if (manifest.getUsesPermission(perm) == null) manifest.addUsesPermission(perm)
+        }
+        apk.refreshManifest()
+        log("Parked-only lock: added as $dexName")
+    }
+
+    /** Android loads classes.dex, classes2.dex, … while the numbering has no gaps. */
+    private fun nextDexName(apk: ApkModule): String {
+        if (!apk.containsFile("classes.dex")) return "classes.dex"
+        var n = 2
+        while (apk.containsFile("classes$n.dex")) n++
+        return "classes$n.dex"
+    }
+
     /** Split APKs must carry the same package name as the base; car entries live in the base only. */
     fun patchSplit(apk: ApkModule, newPackage: String) {
         val manifest = apk.androidManifest ?: error("split has no AndroidManifest.xml")
@@ -225,6 +262,15 @@ class ManifestPatcher(private val log: (String) -> Unit) {
         private const val ID_BACKUP_AGENT = 0x0101027f
         private const val ID_DRAWABLE = 0x01010199
         private const val ID_ROUND_ICON = 0x0101052c
+        private const val ID_EXPORTED = 0x01010010
+        private const val ID_HAS_CODE = 0x0101000c
+
+        const val GUARD_PROVIDER = "org.carbridge.guard.ParkedGuardProvider"
+        const val GUARD_AUTHORITY_SUFFIX = ".carbridge.guard"
+        val GUARD_PERMISSIONS = listOf(
+            "android.permission.ACCESS_FINE_LOCATION",
+            "android.permission.ACCESS_COARSE_LOCATION",
+        )
 
         private const val ANDROID_NS = "http://schemas.android.com/apk/res/android"
 

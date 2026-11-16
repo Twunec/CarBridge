@@ -15,27 +15,43 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.carbridge.core.CarOptions
 import org.carbridge.patch.PatchPipeline
+import org.carbridge.patch.Stage
+import org.carbridge.patch.StageFailure
 
 private const val TAG = "CarBridge"
 
-/** A car copy being made; [step] indexes [JobStep]. */
-data class Job(val label: String, val icon: ImageBitmap, val packageName: String, val update: Boolean, val step: Int)
-
-enum class JobStep(val text: String) {
-    Read("Reading the app"),
-    Patch("Making the car copy"),
-    Sign("Signing it on this phone"),
-    Confirm("Confirm the install in Android's prompt"),
-}
+/** A car copy being made, currently at [stage]; [detail] says which part, e.g. "split 2 of 4". */
+data class Job(
+    val label: String,
+    val icon: ImageBitmap,
+    val packageName: String,
+    val update: Boolean,
+    val stage: Stage,
+    val detail: String? = null,
+)
 
 data class Setup(val canInstall: Boolean, val developerMode: Boolean, val unknownSources: Boolean) {
     val complete get() = canInstall && developerMode && unknownSources
 }
 
-/** An add waiting for the user's layout and audio choices. */
-data class AddChoice(val app: SourceApp, val portraitLocked: Boolean, val hasMediaService: Boolean)
+/** An add waiting for the user's choices. */
+data class AddChoice(
+    val app: SourceApp,
+    val portraitLocked: Boolean,
+    val hasMediaService: Boolean,
+    /** YouTube gets an explanation of what to expect before patching. */
+    val isYouTube: Boolean,
+)
 
-data class UserMessage(val text: String, val details: String? = null)
+/** A message for the snackbar; [stage] is where it failed, [checksFor] offers the copy's checks. */
+data class UserMessage(
+    val text: String,
+    val details: String? = null,
+    val stage: Stage? = null,
+    val checksFor: String? = null,
+)
+
+const val YOUTUBE = "com.google.android.youtube"
 
 class HomeModel(app: Application) : AndroidViewModel(app) {
     private val prefs = app.getSharedPreferences("setup", 0)
@@ -47,6 +63,10 @@ class HomeModel(app: Application) : AndroidViewModel(app) {
     var setup by mutableStateOf(readSetup())
         private set
     var showAutoApps by mutableStateOf(prefs.getBoolean("show_auto_apps", false))
+        private set
+
+    /** The checks sheet being shown, if any. */
+    var checks by mutableStateOf<CopyChecks?>(null)
         private set
 
     private val _messages = Channel<UserMessage>(Channel.BUFFERED)
@@ -67,20 +87,42 @@ class HomeModel(app: Application) : AndroidViewModel(app) {
             Installer.events.collect { result ->
                 val current = job
                 if (current != null && (result.packageName ?: current.packageName) == current.packageName) {
-                    job = null
-                    if (result.success && !prefs.getBoolean("asked_notifications", false)) {
-                        prefs.edit().putBoolean("asked_notifications", true).apply()
-                        _notificationPrompt.send(Unit)
+                    if (result.success) {
+                        job = current.copy(stage = Stage.Inspect, detail = null)
+                        val inspected = withContext(Dispatchers.IO) {
+                            CopyChecks.run(getApplication(), prefs, current.packageName)
+                        }
+                        job = null
+                        if (!prefs.getBoolean("asked_notifications", false)) {
+                            prefs.edit().putBoolean("asked_notifications", true).apply()
+                            _notificationPrompt.send(Unit)
+                        }
+                        _messages.send(
+                            UserMessage(
+                                if (inspected == null) {
+                                    "${current.label} installed, but CarBridge couldn't inspect it."
+                                } else {
+                                    "${current.label} installed. ${inspected.summary}."
+                                },
+                                checksFor = current.packageName,
+                            ),
+                        )
+                        // Location must be granted before the car screen unlocks; show what's missing now
+                        if (inspected != null && (inspected.failed > 0 || inspected.needsLocation)) checks = inspected
+                    } else {
+                        job = null
+                        _messages.send(
+                            if (result.cancelled) {
+                                UserMessage("Install cancelled.")
+                            } else {
+                                UserMessage(
+                                    "Couldn't install ${current.label}.",
+                                    details(result.message),
+                                    stage = Stage.Install,
+                                )
+                            },
+                        )
                     }
-                    _messages.send(
-                        when {
-                            result.success -> UserMessage(
-                                "${current.label} is on your car. Reconnect your phone to Android Auto to see it.",
-                            )
-                            result.cancelled -> UserMessage("Install cancelled.")
-                            else -> UserMessage("Couldn't add ${current.label}.", details(result.message))
-                        },
-                    )
                 }
                 refresh()
                 if (job == null) nextQueued(continueRun = result.success)
@@ -114,15 +156,21 @@ class HomeModel(app: Application) : AndroidViewModel(app) {
             val (portrait, media) = withContext(Dispatchers.IO) {
                 AppCatalog.traits(getApplication(), app.info.packageName)
             }
-            if (portrait || media) pendingAdd = AddChoice(app, portrait, media) else add(app, update = false)
+            val youtube = app.info.packageName == YOUTUBE
+            if (portrait || media || youtube) {
+                pendingAdd = AddChoice(app, portrait, media, youtube)
+            } else {
+                add(app, update = false)
+            }
         }
     }
 
-    fun confirmAdd(choice: AddChoice, options: CarOptions) {
+    fun confirmAdd(choice: AddChoice, options: CarOptions, parkedOnly: Boolean) {
         val pkg = choice.app.info.packageName
         prefs.edit()
             .putBoolean("keep_portrait:$pkg", !options.fillScreen)
             .putBoolean("keep_media:$pkg", options.keepMediaServices)
+            .putBoolean("parked_only:$pkg", parkedOnly || pkg == YOUTUBE)
             .apply()
         pendingAdd = null
         add(choice.app, update = false)
@@ -166,10 +214,11 @@ class HomeModel(app: Application) : AndroidViewModel(app) {
         sample?.let { setup = Setup(canInstall = true, developerMode = true, unknownSources = true); catalog = it; return }
         setup = readSetup()
         viewModelScope.launch {
-            val loaded = withContext(Dispatchers.IO) { AppCatalog.load(getApplication(), ::carOptions) }
+            val loaded = withContext(Dispatchers.IO) { AppCatalog.load(getApplication(), ::carOptions, ::parkedOnly) }
             catalog = loaded
             runPendingUpdate(loaded)
         }
+        checks?.let { openChecks(it.packageName) }
     }
 
     fun toggleAutoApps() {
@@ -183,6 +232,10 @@ class HomeModel(app: Application) : AndroidViewModel(app) {
         fillScreen = !prefs.getBoolean("keep_portrait:$originalPackage", false),
     )
 
+    /** The parked-only lock is on by default, and always on for YouTube. */
+    private fun parkedOnly(originalPackage: String) =
+        originalPackage == YOUTUBE || prefs.getBoolean("parked_only:$originalPackage", true)
+
     /** Saves the layout choice and rebuilds the copy with it. */
     fun setFillScreen(copy: CarCopy, fill: Boolean) {
         val original = copy.original ?: return
@@ -195,6 +248,36 @@ class HomeModel(app: Application) : AndroidViewModel(app) {
         val original = copy.original ?: return
         prefs.edit().putBoolean("keep_media:${original.info.packageName}", keep).apply()
         add(original, update = true)
+    }
+
+    /** Saves the parked-only choice and rebuilds the copy with it; YouTube can't turn it off. */
+    fun setParkedOnly(copy: CarCopy, on: Boolean) {
+        val original = copy.original ?: return
+        if (original.info.packageName == YOUTUBE && !on) return
+        prefs.edit().putBoolean("parked_only:${original.info.packageName}", on).apply()
+        add(original, update = true)
+    }
+
+    fun openChecks(carPackage: String) {
+        viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) { CopyChecks.run(getApplication(), prefs, carPackage) }
+            if (result == null) {
+                checks = null
+                _messages.send(UserMessage("That car copy isn't installed any more."))
+            } else {
+                checks = result
+            }
+        }
+    }
+
+    fun closeChecks() {
+        checks = null
+    }
+
+    fun setManualCheck(key: String, done: Boolean) {
+        val current = checks ?: return
+        prefs.edit().putBoolean(CopyChecks.manualPrefKey(current.packageName, current.versionCode, key), done).apply()
+        openChecks(current.packageName)
     }
 
     fun markDeveloperMode() = mark("developer_mode")
@@ -214,22 +297,43 @@ class HomeModel(app: Application) : AndroidViewModel(app) {
     fun add(source: SourceApp, update: Boolean) {
         if (job != null) return
         val context = getApplication<Application>()
-        val carPackage = PatchPipeline.carPackageName(source.info.packageName)
-        log.clear()
-        job = Job(source.label, source.icon, carPackage, update, JobStep.Read.ordinal)
+        val originalPkg = source.info.packageName
+        val carPackage = PatchPipeline.carPackageName(originalPkg)
+        synchronized(log) { log.clear() }
+        job = Job(source.label, source.icon, carPackage, update, Stage.Check)
         viewModelScope.launch {
+            var stage = Stage.Check
             try {
-                val apks = withContext(Dispatchers.IO) {
-                    PatchPipeline(context) { line -> onLog(line) }.patch(source.info, carOptions(source.info.packageName))
+                val result = withContext(Dispatchers.IO) {
+                    PatchPipeline(
+                        context,
+                        onStage = { s, detail ->
+                            stage = s
+                            onLog("▶ ${s.title}" + (detail?.let { " ($it)" } ?: ""))
+                            viewModelScope.launch { job = job?.copy(stage = s, detail = detail) }
+                        },
+                        log = ::onLog,
+                    ).patch(source.info, carOptions(originalPkg), parkedOnly(originalPkg))
                 }
-                job = job?.copy(step = JobStep.Confirm.ordinal)
-                withContext(Dispatchers.IO) { Installer.install(context, apks, carPackage) }
+                prefs.edit().putString(CopyChecks.verifiedPrefKey(carPackage), result.verification.summary).apply()
+
+                stage = Stage.Install
+                job = job?.copy(stage = Stage.Install, detail = "${result.apks.size} APK(s)")
+                withContext(Dispatchers.IO) { Installer.install(context, result.apks, carPackage) }
+                job = job?.copy(stage = Stage.Confirm, detail = null)
             } catch (e: Throwable) {
-                // Throwable: apksig/ARSCLib can throw Errors (e.g. missing JDK classes on Android)
                 Log.e(TAG, "patch failed", e)
                 job = null
                 nextQueued(continueRun = false)
-                _messages.send(UserMessage("Couldn't add ${source.label}.", details("${e.javaClass.simpleName}: ${e.message}")))
+                val failed = (e as? StageFailure)?.stage ?: stage
+                val reason = (e as? StageFailure)?.reason ?: "${e.javaClass.simpleName}: ${e.message}"
+                _messages.send(
+                    UserMessage(
+                        "Couldn't add ${source.label}: “${failed.title}” failed.",
+                        details(reason),
+                        stage = failed,
+                    ),
+                )
             }
         }
     }
@@ -237,13 +341,10 @@ class HomeModel(app: Application) : AndroidViewModel(app) {
     private fun onLog(line: String) {
         Log.i(TAG, line)
         synchronized(log) { log.add(line) }
-        val step = when {
-            line.startsWith("Signing") -> JobStep.Sign
-            line.startsWith("Car-enabled") || line.startsWith("Renamed") -> JobStep.Patch
-            else -> null
-        } ?: return
-        viewModelScope.launch { job = job?.copy(step = maxOf(job?.step ?: 0, step.ordinal)) }
     }
 
-    private fun details(error: String?) = synchronized(log) { (log + listOfNotNull(error)).joinToString("\n") }
+    /** The reason first, then the full log of this run, for the details dialog. */
+    private fun details(error: String?) = synchronized(log) {
+        (listOfNotNull(error) + listOf("", "Log:") + log).joinToString("\n")
+    }
 }

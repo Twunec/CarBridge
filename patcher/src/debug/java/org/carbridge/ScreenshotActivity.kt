@@ -31,7 +31,7 @@ class ScreenshotActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val model = ViewModelProvider(this)[HomeModel::class.java]
         model.showSample(sampleCatalog())
-        val none = HomeActions({}, {}, {}, {}, {}, {}, {}, {}, { _, _ -> }, { _, _ -> }, {})
+        val none = HomeActions()
         setContent { CarBridgeTheme { HomeScreen(model, none) } }
     }
 
@@ -59,6 +59,8 @@ class ScreenshotActivity : ComponentActivity() {
         info = ApplicationInfo().apply { packageName = "sample." + label.lowercase().replace(' ', '.') },
         icon = icon(letter, color, badged = false),
         sizeBytes = mb * 1_000_000,
+        splitCount = 2,
+        version = Version(1, "1.0"),
         hasAndroidAuto = false,
         caution = null,
     )
@@ -74,6 +76,7 @@ class ScreenshotActivity : ComponentActivity() {
             portraitLocked = portrait,
             hasMediaService = false,
             options = CarOptions(),
+            parkedOnly = true,
         )
 
     private fun icon(letter: String, color: Long, badged: Boolean): ImageBitmap {
