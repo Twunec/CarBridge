@@ -27,7 +27,7 @@ jobs:
       - name: Patch, lock, sign and verify a real APK
         run: >
           ./gradlew --no-daemon :patcher:testDebugUnitTest --tests '*patchesLocksSignsAndVerifiesFixture*'
-          -PpatchFixture=patcher/build/outputs/apk/debug/patcher-debug.apk -PpatchHeap=512m
+          -PpatchFixture="$PWD/patcher/build/outputs/apk/debug/patcher-debug.apk" -PpatchHeap=512m
 
       - name: Check the copy with the SDK's own tools
         run: |
