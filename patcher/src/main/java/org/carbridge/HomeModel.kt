@@ -100,7 +100,7 @@ class HomeModel(app: Application) : AndroidViewModel(app) {
                         _messages.send(
                             UserMessage(
                                 if (inspected == null) {
-                                    "${current.label} installed, but CarBridge couldn't inspect it."
+                                    "${current.label} installed, but CarTube couldn't inspect it."
                                 } else {
                                     "${current.label} installed. ${inspected.summary}."
                                 },

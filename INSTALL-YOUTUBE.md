@@ -1,5 +1,7 @@
 # YouTube (Car): install and test guide
 
+The app shows up on the phone as **CarTube** (this guide calls it CarBridge, the project it's built on).
+
 A personal build of CarBridge for a Nothing Phone (3a) Pro (Android 16, Nothing OS 4.1) and a 2017
 Škoda Kodiaq with wired Android Auto. It makes a separate **YouTube (Car)** app from the YouTube
 you installed from Google Play. Your normal YouTube app is not changed.

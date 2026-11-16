@@ -299,7 +299,7 @@ final class ParkedGuard implements Application.ActivityLifecycleCallbacks, Locat
     private static String message(Lock lock) {
         switch (lock) {
             case NO_PERMISSION:
-                return "Allow location for this car copy on your phone (CarBridge → Checks) so it can tell when you're parked.";
+                return "Allow location for this car copy on your phone (CarTube → Checks) so it can tell when you're parked.";
             case LOCATION_OFF:
                 return "Turn on location on your phone so this app can tell when you're parked.";
             case CHECKING:

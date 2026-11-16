@@ -98,7 +98,7 @@ class PatchPipeline(
     private fun preflight(base: File, splits: List<File>, work: File) {
         val all = listOf(base) + splits
         all.firstOrNull { !it.canRead() }?.let {
-            throw StageFailure(Stage.Check, "Android didn't let CarBridge read ${it.name}.")
+            throw StageFailure(Stage.Check, "Android didn't let CarTube read ${it.name}.")
         }
         val total = all.sumOf { it.length() }
         log("Reading ${total / MB} MB in ${all.size} APK(s): " + all.joinToString { it.name })

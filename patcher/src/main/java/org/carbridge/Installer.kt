@@ -45,13 +45,13 @@ object Installer {
         val reason = when (status) {
             PackageInstaller.STATUS_FAILURE_CONFLICT ->
                 "A car copy signed with a different key is already installed (for example one made before " +
-                    "CarBridge was reinstalled). Uninstall the car copy, then add it again."
+                    "CarTube was reinstalled). Uninstall the car copy, then add it again."
             PackageInstaller.STATUS_FAILURE_STORAGE -> "Not enough storage to install the car copy."
             PackageInstaller.STATUS_FAILURE_INCOMPATIBLE ->
                 "Android says the copy isn't compatible with this phone (e.g. a missing split or wrong CPU type)."
             PackageInstaller.STATUS_FAILURE_INVALID -> "Android rejected the APK as invalid."
             PackageInstaller.STATUS_FAILURE_BLOCKED ->
-                "The install was blocked, e.g. by a device policy or because CarBridge isn't allowed to install apps."
+                "The install was blocked, e.g. by a device policy or because CarTube isn't allowed to install apps."
             PackageInstaller.STATUS_FAILURE_ABORTED -> "The install was cancelled."
             PackageInstaller.STATUS_FAILURE_TIMEOUT -> "The install timed out."
             else -> "The install failed."

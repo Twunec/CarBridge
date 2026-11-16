@@ -367,13 +367,13 @@ private fun SignHeader(onAbout: () -> Unit) {
             Icon(BridgeMark, contentDescription = null, tint = signs.onGuide, modifier = Modifier.size(40.dp))
             Spacer(Modifier.width(10.dp))
             Text(
-                "CarBridge",
+                "CarTube",
                 style = MaterialTheme.typography.displaySmall,
                 color = signs.onGuide,
                 modifier = Modifier.weight(1f).semantics { heading() },
             )
             IconButton(onClick = onAbout) {
-                Icon(Icons.Rounded.Info, contentDescription = "About CarBridge", tint = signs.onGuide)
+                Icon(Icons.Rounded.Info, contentDescription = "About CarTube", tint = signs.onGuide)
             }
         }
         Spacer(Modifier.height(6.dp))
@@ -417,8 +417,8 @@ private fun SetupCard(setup: Setup, actions: HomeActions, onHide: (() -> Unit)?)
     val signs = LocalSigns.current
     val steps = listOf(
         SetupStep(
-            "Let CarBridge install apps",
-            "Android asks once. CarBridge only installs the car copies you choose.",
+            "Let CarTube install apps",
+            "Android asks once. CarTube only installs the car copies you choose.",
             setup.canInstall,
         ) { Button(onClick = actions.allowInstalls, colors = cautionButton()) { Text("Allow") } },
         SetupStep(
@@ -855,7 +855,7 @@ private fun Footer(onAbout: () -> Unit) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        OutlinedButton(onClick = onAbout, modifier = Modifier.padding(top = 12.dp)) { Text("How CarBridge works") }
+        OutlinedButton(onClick = onAbout, modifier = Modifier.padding(top = 12.dp)) { Text("How CarTube works") }
     }
 }
 
@@ -927,10 +927,10 @@ private fun About() {
             .padding(start = 24.dp, end = 24.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(18.dp),
     ) {
-        Text("How CarBridge works", style = MaterialTheme.typography.headlineSmall)
+        Text("How CarTube works", style = MaterialTheme.typography.headlineSmall)
         AboutItem(
             "A separate copy",
-            "CarBridge makes a copy of an app that Android Auto will show on the car screen. " +
+            "CarTube makes a copy of an app that Android Auto will show on the car screen. " +
                 "Your original app and its data stay as they are; the copy has its own data and sign-in.",
         )
         AboutItem(
@@ -938,8 +938,8 @@ private fun About() {
             "Apps that check their own signature, a license or Play Integrity may refuse to run as a copy.",
         )
         AboutItem(
-            "Keep CarBridge installed",
-            "Copies are signed with a key stored only on this phone. If you uninstall CarBridge or clear its data, " +
+            "Keep CarTube installed",
+            "Copies are signed with a key stored only on this phone. If you uninstall CarTube or clear its data, " +
                 "remove your copies and add them again.",
         )
         AboutItem(
@@ -949,7 +949,7 @@ private fun About() {
         )
         AboutItem(
             "Parked-only video",
-            "Each copy carries a small lock from CarBridge. On the car screen it covers the app and pauses playback " +
+            "Each copy carries a small lock from CarTube. On the car screen it covers the app and pauses playback " +
                 "unless the phone's GPS shows the car has been still for a few seconds. Without location permission " +
                 "or a GPS fix it stays locked. It doesn't affect the copy on the phone's own screen.",
         )
@@ -959,7 +959,7 @@ private fun About() {
         )
         AboutItem(
             "Licence and credits",
-            "This is a modified version of CarBridge by jmwerk (github.com/jmwerk/CarBridge), changed in November 2026 " +
+            "CarTube is a modified version of CarBridge by jmwerk (github.com/jmwerk/CarBridge), changed in November 2026 " +
                 "to add the YouTube workflow, the parked-only lock, step-by-step progress and copy checks. It is " +
                 "distributed under the GNU General Public License v3.0, without warranty; the full licence is in the " +
                 "LICENSE file of the source. Car-visibility entries come from AABrowser (GPL-3.0). Uses ARSCLib " +
@@ -1005,7 +1005,7 @@ private fun splitText(splits: Int) = when (splits) {
 
 /** What a failure at each stage usually means, and what to try. */
 private fun stageHelp(stage: Stage) = when (stage) {
-    Stage.Check -> "CarBridge couldn't start: usually free space, or Android not letting it read the app."
+    Stage.Check -> "CarTube couldn't start: usually free space, or Android not letting it read the app."
     Stage.Read -> "The app's APK files couldn't be read. Very large apps can run out of memory here."
     Stage.Patch -> "The app's manifest couldn't be changed for Android Auto. This app may not support being copied."
     Stage.Lock -> "The parked-only lock couldn't be added to the copy."

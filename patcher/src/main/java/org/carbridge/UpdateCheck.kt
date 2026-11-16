@@ -91,9 +91,9 @@ object UpdateCheck {
         )
         val title = if (outdated.size == 1) "${outdated[0].label} was updated" else "${outdated.size} car copies are out of date"
         val text = if (outdated.size == 1) {
-            "Update its car copy in CarBridge so they match."
+            "Update its car copy in CarTube so they match."
         } else {
-            outdated.joinToString { it.label } + ". Update them in CarBridge."
+            outdated.joinToString { it.label } + ". Update them in CarTube."
         }
         val open = PendingIntent.getActivity(
             context, 0,

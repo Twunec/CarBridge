@@ -84,13 +84,13 @@ data class CopyChecks(val packageName: String, val label: String, val versionCod
                     else -> CheckItem(
                         "Signed with this phone's key",
                         CheckState.Warn,
-                        "Signed with another key (${installedCert.take(23)}…), so CarBridge can't update it in place. Uninstall and add it again.",
+                        "Signed with another key (${installedCert.take(23)}…), so CarTube can't update it in place. Uninstall and add it again.",
                     )
                 },
                 if (verified != null) {
                     CheckItem("Signatures verified before install", CheckState.Pass, verified)
                 } else {
-                    CheckItem("Signatures verified before install", CheckState.Warn, "No record: this copy was made by an older CarBridge or another install.")
+                    CheckItem("Signatures verified before install", CheckState.Warn, "No record: this copy was made by an older CarTube or another install.")
                 },
             )
 
