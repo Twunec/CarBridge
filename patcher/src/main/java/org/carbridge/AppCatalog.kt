@@ -71,7 +71,7 @@ object AppCatalog {
         val launchable = pm.queryIntentActivities(launcher, 0)
             .map { it.activityInfo.applicationInfo }
             .distinctBy { it.packageName }
-            .filter { it.flags and ApplicationInfo.FLAG_SYSTEM == 0 && it.packageName != context.packageName }
+            .filter { it.packageName != context.packageName && isUserFacing(it) }
 
         val (copyInfos, sourceInfos) = launchable.partition { it.packageName.endsWith(CAR_SUFFIX) }
         // Launcher query results don't carry meta-data, so read it once for all apps
@@ -118,6 +118,15 @@ object AppCatalog {
         val available = sources.values.filter { it.info.packageName !in copied }.sortedBy { it.label.lowercase() }
         return Catalog(copies, available)
     }
+
+    /**
+     * Apps the user installed, plus preinstalled apps the Play Store has updated: many phones,
+     * including Nothing's, ship YouTube as a system app, so hiding all system apps hid YouTube.
+     */
+    private fun isUserFacing(info: ApplicationInfo): Boolean =
+        info.flags and ApplicationInfo.FLAG_SYSTEM == 0 ||
+            info.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP != 0 ||
+            info.packageName == YOUTUBE
 
     private fun ApplicationInfo.toSource(pm: PackageManager, hasAndroidAuto: Boolean, caution: Caution?, version: Version?) = SourceApp(
         label = loadLabel(pm).toString(),
