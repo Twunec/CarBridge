@@ -9,6 +9,30 @@ comes from AAAnything.
 > VLC 3.7.1, Firefox 159.0.1 (3 split APKs), GitHub 1.282.0, Offline Games (Unity, 2 split APKs)
 > and Morphe YouTube 21.03.36.
 
+## Changes in this fork
+
+This is a modified version of [CarBridge](https://github.com/jmwerk/CarBridge) by jmwerk, changed
+in November 2026 for personal use with YouTube on a Nothing Phone (3a) Pro and wired Android Auto.
+The changes, all under GPL-3.0 like the rest of the project:
+
+- **YouTube workflow**: a card that creates, updates, checks and uninstalls *YouTube (Car)*
+  (`com.google.android.youtube.car`) next to the untouched Play Store YouTube, with an up-front
+  explanation of what is unlikely to work (sign-in) and what may not (re-signed playback).
+- **Parked-only video lock** (`guard/`): a small framework-only dex added to every car copy (always
+  on for YouTube, optional for other apps). On a car display it covers the app and pauses playback
+  unless GPS shows the car has been still for 5 seconds; it fails closed without location
+  permission or a recent fix. Copies with the lock get the location permissions it needs.
+- **Stages and errors**: ten named stages from preflight to post-install inspection, each failure
+  reported with its stage, a plain explanation and the log; signatures are verified with apksig
+  before installing; PackageInstaller failures are explained.
+- **Separate checks** for signing, installation, Android Auto visibility and the lock, plus an
+  in-car checklist (visible, opens, plays while parked, blocked when moving).
+- **UI**: dark only; package names, versions and split counts on every app.
+- **CI**: patches, locks, signs and verifies a real APK, checks it with `apksigner` and `aapt2`, and
+  installs it on an emulator to exercise the lock on a second display.
+
+See [INSTALL-YOUTUBE.md](INSTALL-YOUTUBE.md) to install and test it.
+
 ## CarBridge app or CarBridge Patches?
 
 Both put an app's full interface on the Android Auto screen, using the same rules (CarBridge's

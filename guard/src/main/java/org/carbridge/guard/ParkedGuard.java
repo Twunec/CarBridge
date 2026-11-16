@@ -202,11 +202,18 @@ final class ParkedGuard implements Application.ActivityLifecycleCallbacks, Locat
     }
 
     private Lock lastLock;
+    private long lastPauseAt = -PAUSE_EVERY_MS;
+    /** Re-pauses while locked, e.g. when autoplay starts the next video behind the cover. */
+    private static final long PAUSE_EVERY_MS = 3_000;
 
     private void update() {
         Lock lock = currentLock();
+        long now = SystemClock.elapsedRealtime();
         boolean wasLocked = lastLock != null && lastLock != Lock.NONE;
-        if (lock != Lock.NONE && !wasLocked) pausePlayback();
+        if (lock != Lock.NONE && (!wasLocked || now - lastPauseAt >= PAUSE_EVERY_MS)) {
+            pausePlayback();
+            lastPauseAt = now;
+        }
         if (lock != lastLock) Log.i(TAG, "Car screen lock: " + lock);
         lastLock = lock;
         for (Activity activity : new ArrayList<>(onCar)) {
